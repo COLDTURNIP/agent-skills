@@ -1,8 +1,13 @@
 # agent-skills
 
 Reusable agent skills for coding agents. Installable skills live in
-[`skills/<name>/SKILL.md`](./skills); for example,
-[`jj-vcs`](./skills/jj-vcs/SKILL.md).
+[`skills/<name>/SKILL.md`](./skills):
+
+- [`ascii-scanner`](./skills/ascii-scanner/SKILL.md): keep every change
+  ASCII-only and free of invisible, BiDi, and control characters (Trojan
+  Source), in any project. Checks files, file names, added lines, commit
+  messages, and pull request titles.
+- [`jj-vcs`](./skills/jj-vcs/SKILL.md): Jujutsu (jj) version-control workflow.
 
 ## Installation
 
