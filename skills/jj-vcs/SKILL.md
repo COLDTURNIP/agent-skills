@@ -1,124 +1,103 @@
 ---
 name: jj-vcs
 description: >
-  Use Jujutsu (jj) for version-control work when the user requests a jj workflow or
-  the target repository is jj-managed. Determine the actual target repository and
-  its policies before acting; do not select jj from a parent directory alone.
+  Jujutsu (jj) version control. Use when the target repo is jj-managed or the
+  user asks for jj, including before git commands in a `.jj` repo (its
+  detached HEAD is normal). Check the target repo and its policies first; a
+  parent's `.jj` does not count.
 ---
 
 # Jujutsu workflow
 
-Use this skill only for the repository that owns the requested change. First identify
-that target directory and inspect its repository policy. A `.jj` directory is evidence
-about that directory, not a reason to run version-control commands for unrelated work.
-If the target is a Git repository, follow its Git workflow instead. A workspace may
-contain several repositories; never operate on the parent when the requested target is
-a subrepository.
+Written for jj 0.46; check `jj help <command>` rather than guessing flags.
 
-## Safety and policy
+## Target and policy
 
-- Read the target repository's contribution, signoff, remote, base, rewrite, and
-  workspace policies before mutating history. Follow those policies over this skill.
-- Treat existing work as valuable. Inspect `jj status`, `jj log`, and `jj diff` before
-  changing it, and preserve unrelated changes.
-- Protect published changes. A pushed change is not automatically immutable, but do
-  not rewrite a pushed or shared change unless the user gives exact authorization for
-  that rewrite and the repository policy permits it. Do not use an unverified force
-  workflow.
-- `jj undo`, `jj operation restore`, and `jj abandon` mutate repository state. Scope
-  them to an explicitly inspected operation or revision; they are recovery or cleanup
-  tools, not universally safe escape hatches. Inspect `jj op log` first when recovering.
-- Do not delete remotes or bookmarks as routine cleanup. Delete or forget one only
-  when the user explicitly requests that exact name and the repository policy allows it.
-- Do not invent force options. Check the installed `jj` help when a command or
-  remote-revision form is uncertain.
+Act only in the repository that owns the requested change. A `.jj` directory
+describes that directory alone: in a workspace of several repositories, operate
+on the subrepository the task names, never its parent. A plain Git target keeps
+its Git workflow.
 
-## Inspect and describe
+Read the target's contribution, signoff, remote, base, rewrite, and workspace
+policies before mutating history; they override this skill. Inspect `jj st`,
+`jj log`, and `jj diff` before and after each mutation, and preserve unrelated
+changes. Add a required signoff trailer with the repository's documented
+identity, never a guessed one.
 
-The working copy is a change and file edits are tracked without a staging area. Use
-these read-oriented commands before and after a mutation:
+## Agent hazards
 
-```bash
-jj status
-jj log -r <revset>
-jj diff
-jj diff -r <revision>
-jj op log
-```
+Editor and diff-tool forms hang or fail without a terminal; use the agent form.
 
-`@` names the working-copy revision. Change IDs can be abbreviated only when the
-prefix is unambiguous. Use revsets deliberately and quote expressions containing
-shell metacharacters.
+| Opens an editor or TUI | Agent form |
+|---|---|
+| `jj describe`, `jj commit` | add `-m "<msg>"` |
+| `jj split` | `jj split -m "<msg>" <paths>` |
+| `jj squash` when both sides are described | add `-m "<msg>"`, or `-u` to keep the destination's |
+| `jj squash -i`, `jj resolve` | pass paths; edit conflict markers in the files |
 
-## Make changes
+- `jj diff --git` prints a unified diff; the default format is easy to misread.
+- Every jj command snapshots the working copy, so new files land in `@` at once.
+  Add build output and secrets to `.gitignore`, then `jj file untrack <paths>`.
+- In a colocated repo (`.jj` beside `.git`), git is read-only and a detached
+  HEAD is the normal state; leave it detached.
+- `<placeholders>` are syntax: substitute values inspected from the repository.
 
-Use an existing change when appropriate, or create a new one from the selected base:
+## Change and refine
 
-```bash
-jj new <base-revision>
-jj describe -m "<change-description>"
-```
+| Intent | Command |
+|---|---|
+| Describe `@` and start its child | `jj commit -m "<msg>"` (`@` moves to the child) |
+| Fold changes into a change | `jj squash --from <rev> --into <dest> [paths]` |
+| Fold lines into the ancestors that last touched them | `jj absorb` |
+| Split paths into a new first change | `jj split -r <rev> -m "<msg>" <paths>` |
+| Move a change and its descendants | `jj rebase -s <rev> -o <base>` (`-r`: without descendants; `-o`, not `-d`) |
+| Discard or copy file content | `jj restore [--from <rev>] <paths>` |
+| Reverse a change with a new one | `jj revert -r <rev> -B @` (`backout` is gone) |
 
-`jj new` with multiple parent revisions creates a merge change; do that only when the
-requested history explicitly needs a merge. Do not create speculative skeleton
-changes. `jj commit -m "<change-description>"` describes the working copy and then
-creates a new change, so inspect the resulting working-copy location rather than
-assuming you remain on the described revision.
+Create a change when it will hold work: an empty described change is clutter
+that is easy to push or leave behind. Create a merge (`jj new` with several
+parents) only when the requested history needs one. Rebase only onto the base
+the task or policy selects; upstream rebasing is never an automatic step.
 
-For focused history edits, use exact revisions and review the resulting graph:
+Rewrites carry descendants along. Before one, confirm the target is mutable and
+unpublished; afterward, review the rewritten descendants.
 
-```bash
-jj edit <revision>
-jj split -r <revision>
-jj squash --from <revision> --into <destination>
-jj rebase --source <source> --onto <selected-base>
-```
+## Conflicts
 
-These commands rewrite or relocate changes. Confirm the scope, check immutable and
-published boundaries, and inspect `jj status`, `jj log`, and `jj diff` afterward.
-Do not automatically rebase onto a conventional branch. Fetch and select the base
-required by the target repository and task.
+jj records conflicts in changes instead of stopping, and a rewrite can conflict
+its descendants. List them with `jj log -r 'conflicts()'`. Resolve each one in
+place (`jj new <rev>`, edit the markers, `jj squash`), then confirm `jj st`
+reports none.
 
-If the repository requires signoff, add the required trailer to the change description
-using the repository's documented identity and format. Do not guess an identity.
+## Publishing
 
-## Bookmarks and remotes
-
-Bookmarks are local names for revisions that matter to collaboration; local work does
-not require one. Remote commands require an explicit remote and an explicit bookmark
-or revision. Replace angle-bracket placeholders with values inspected from the target
-repository; placeholders are syntax, not commit messages:
+Bookmarks are optional names for collaboration, and they stay put while you
+create changes: set one before pushing. Each remote command names one remote
+and one bookmark.
 
 ```bash
 jj git fetch --remote <remote> --branch <bookmark>
-jj log -r '<base-bookmark>@<remote>'
-jj bookmark create <bookmark> --revision <revision>
-jj bookmark set <bookmark> --revision <revision>
+jj log -r '<bookmark>@<remote>'
+jj bookmark set <bookmark> -r <rev>
 jj git push --remote <remote> --bookmark <bookmark>
+jj git push --remote <remote> --named <bookmark>=<rev>   # new bookmark
 ```
 
-Use `jj git fetch --remote <remote> --branch <bookmark>` before relying on a
-remote-tracking revision. `<base-bookmark>@<remote>` is the remote-bookmark
-revision form. The normal push safety checks protect against a stale remote.
+- `jj git push` force-updates a rewritten bookmark without any flag, guarded
+  only by a stale-remote check. Rewrite or re-push a published change only with
+  the user's exact authorization and the repository's permission; otherwise
+  stop at that boundary and ask.
+- `jj bookmark delete` propagates the deletion on the next push; `forget` stays
+  local. Delete a bookmark or remote only by exact name, on explicit request.
+  Push named bookmarks, never `--all`, `--tracked`, or `--deleted`.
+- Push in its own step after local edits. First confirm each bookmark's target
+  and report conflicts or rewritten descendants.
 
-Remote deletion is an explicit destructive operation. Use only the target
-repository's documented exact-name workflow after authorization; never issue a
-blanket deletion or push all deleted bookmarks.
+## Recovery and workspaces
 
-Never use a blanket push, remote deletion, or guessed force option. If a requested
-rewrite would require changing a published remote bookmark, stop at the safety boundary
-and obtain exact authorization and repository-specific instructions.
+`jj undo`, `jj op restore <op>`, and `jj abandon <rev>` mutate state too. Read
+`jj op log` first and scope each to an inspected operation or revision.
+`jj evolog -r <rev>` shows how a change evolved.
 
-## Integration and workspaces
-
-Choose integration deliberately. Rebase onto the selected remote or local base only
-when the task or repository policy calls for it; do not make upstream rebasing an
-automatic step. Merge changes only when the task calls for a merge and the repository
-permits it. For parallel working copies, inspect the repository's workspace policy and
-then use the documented `jj workspace add <path>` workflow; do not assume a workspace
-is safe merely because the command exists.
-
-After a coherent history-changing sequence, inspect the affected revisions and diff,
-confirm the intended bookmark/revision targets, and report any conflicts or rewritten
-descendants before pushing. Keep remote actions separate from local history edits so
-each operation is reviewable.
+Before adding, editing in, or removing a workspace, read
+[references/workspaces.md](references/workspaces.md).
